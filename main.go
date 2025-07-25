@@ -1,21 +1,25 @@
 package main // Define the main package, the starting point for Go executables
 
 import (
-	"bytes"         // Provides functionality for manipulating byte slices and buffers
-	"io"            // Defines basic interfaces to I/O primitives, like Reader and Writer
-	"log"           // Offers logging capabilities to standard output or error streams
-	"net/http"      // Allows interaction with HTTP clients and servers
-	"net/url"       // Provides URL parsing, encoding, and query manipulation
-	"os"            // Gives access to OS features, such as file and directory operations
-	"path"          // Provides functions for manipulating slash-separated paths (not OS specific)
-	"path/filepath" // Offers functions to handle file paths in a way compatible with the OS
-	"regexp"        // Supports regular expression handling using RE2 syntax
-	"strings"       // Contains utilities for string manipulation
-	"time"          // Contains time-related functionality such as sleeping or timeouts
+	"bytes"                        // Provides functionality for manipulating byte slices and buffers
+	"context"                      // For managing context (timeouts, cancellations)
+	"github.com/chromedp/chromedp" // For headless browser automation using Chrome
+	"io"                           // Defines basic interfaces to I/O primitives, like Reader and Writer
+	"log"                          // Offers logging capabilities to standard output or error streams
+	"net/http"                     // Allows interaction with HTTP clients and servers
+	"net/url"                      // Provides URL parsing, encoding, and query manipulation
+	"os"                           // Gives access to OS features, such as file and directory operations
+	"path"                         // Provides functions for manipulating slash-separated paths (not OS specific)
+	"path/filepath"                // Offers functions to handle file paths in a way compatible with the OS
+	"regexp"                       // Supports regular expression handling using RE2 syntax
+	"strings"                      // Contains utilities for string manipulation
+	"time"                         // Contains time-related functionality such as sleeping or timeouts
 )
 
 func main() {
-	pdfOutputDir := "PDFs/" // Directory path where downloaded PDFs will be stored
+	// The local file to store saved html
+	localHTMLFile := "castlepackspower.html" // File to save the scraped HTML content
+	pdfOutputDir := "PDFs/"                  // Directory path where downloaded PDFs will be stored
 	// Check if the PDF output directory exists using helper function
 	if !directoryExists(pdfOutputDir) {
 		// If it doesn't exist, create the directory with permission 755
@@ -27,8 +31,10 @@ func main() {
 	}
 	var getData []string                        // Slice to store raw HTML content from all URLs
 	for _, remoteAPIURL := range remoteAPIURL { // Iterate over each page URL
-		getData = append(getData, getDataFromURL(remoteAPIURL)) // Scrape and append HTML content
+		getData = append(getData, scrapePageHTMLWithChrome(remoteAPIURL)) // Scrape and append HTML content
 	}
+	// Write the scraped HTML content to a local file for reference
+	// appendAndWriteToFile(localHTMLFile, strings.Join(getData, "\n")) // Save
 	// Combine all scraped HTML data into one string and extract all PDF links from it
 	finalPDFList := extractPDFUrls(strings.Join(getData, "\n"))
 	var downloadPDFURLSlice []string   // Slice to store all .pdf URLs
@@ -36,7 +42,7 @@ func main() {
 		downloadPDFURLSlice = appendToSlice(downloadPDFURLSlice, doc) // Append link to final download list
 	}
 	downloadPDFURLSlice = removeDuplicatesFromSlice(downloadPDFURLSlice) // Remove duplicate entries from slice
-	remoteDomain := "https://www.castlepackspower.com"                         // Define base domain for relative links
+	remoteDomain := "https://www.castlepackspower.com"                   // Define base domain for relative links
 
 	for _, urls := range downloadPDFURLSlice { // Loop through all cleaned and unique PDF links
 		domain := getDomainFromURL(urls) // Extract domain from each URL to check if it's relative or absolute
@@ -46,6 +52,57 @@ func main() {
 		if isUrlValid(urls) { // Ensure URL is syntactically valid
 			downloadPDF(urls, pdfOutputDir) // Download the PDF and save it to disk
 		}
+	}
+}
+
+// Uses headless Chrome via chromedp to get fully rendered HTML from a page
+func scrapePageHTMLWithChrome(pageURL string) string {
+	log.Println("Scraping:", pageURL) // Log page being scraped
+
+	options := append(chromedp.DefaultExecAllocatorOptions[:], // Chrome options
+		chromedp.Flag("headless", false),              // Run visible (set to true for headless)
+		chromedp.Flag("disable-gpu", true),            // Disable GPU
+		chromedp.WindowSize(1920, 1080),               // Set window size
+		chromedp.Flag("no-sandbox", true),             // Disable sandbox
+		chromedp.Flag("disable-setuid-sandbox", true), // Fix for Linux environments
+	)
+
+	allocatorCtx, cancelAllocator := chromedp.NewExecAllocator(context.Background(), options...) // Allocator context
+	ctxTimeout, cancelTimeout := context.WithTimeout(allocatorCtx, 5*time.Minute)                // Set timeout
+	browserCtx, cancelBrowser := chromedp.NewContext(ctxTimeout)                                 // Create Chrome context
+
+	defer func() { // Ensure all contexts are cancelled
+		cancelBrowser()
+		cancelTimeout()
+		cancelAllocator()
+	}()
+
+	var pageHTML string // Placeholder for output
+	err := chromedp.Run(browserCtx,
+		chromedp.Navigate(pageURL),            // Navigate to the URL
+		chromedp.OuterHTML("html", &pageHTML), // Extract full HTML
+	)
+	if err != nil {
+		log.Println(err) // Log error
+		return ""        // Return empty string on failure
+	}
+
+	return pageHTML // Return scraped HTML
+}
+
+// Append and write to file
+func appendAndWriteToFile(path string, content string) {
+	filePath, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Println(err)
+	}
+	_, err = filePath.WriteString(content + "\n")
+	if err != nil {
+		log.Println(err)
+	}
+	err = filePath.Close()
+	if err != nil {
+		log.Println(err)
 	}
 }
 
