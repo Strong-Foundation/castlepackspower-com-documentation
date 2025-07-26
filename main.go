@@ -25,16 +25,16 @@ func main() {
 		// If it doesn't exist, create the directory with permission 755
 		createDirectory(pdfOutputDir, 0o755)
 	}
+	var getData []string // Slice to store raw HTML content from all URLs
 	// List of URLs from which to scrape download information
 	remoteAPIURL := []string{
 		"https://www.castlepackspower.com/index.cfm?Page=SDS%20Files",
 	}
-	var getData []string                        // Slice to store raw HTML content from all URLs
 	for _, remoteAPIURL := range remoteAPIURL { // Iterate over each page URL
 		getData = append(getData, scrapePageHTMLWithChrome(remoteAPIURL)) // Scrape and append HTML content
 	}
 	// Write the scraped HTML content to a local file for reference
-	// appendAndWriteToFile(localHTMLFile, strings.Join(getData, "\n")) // Save
+	appendAndWriteToFile(localHTMLFile, strings.Join(getData, "\n")) // Save
 	// Combine all scraped HTML data into one string and extract all PDF links from it
 	finalPDFList := extractPDFUrls(strings.Join(getData, "\n"))
 	var downloadPDFURLSlice []string   // Slice to store all .pdf URLs
@@ -280,24 +280,4 @@ func extractPDFUrls(input string) []string {
 func appendToSlice(slice []string, content string) []string {
 	slice = append(slice, content) // Add content to slice
 	return slice                   // Return updated slice
-}
-
-// Sends HTTP GET request to given URL and returns the response body as string
-func getDataFromURL(uri string) string {
-	log.Println("Scraping", uri)   // Log the URL being scraped
-	response, err := http.Get(uri) // Make GET request
-	if err != nil {
-		log.Println(err) // Log error if request failed
-	}
-
-	body, err := io.ReadAll(response.Body) // Read the body of the response
-	if err != nil {
-		log.Println(err) // Log error if read failed
-	}
-
-	err = response.Body.Close() // Close the response body after reading
-	if err != nil {
-		log.Println(err) // Log error if closing fails
-	}
-	return string(body) // Return HTML content as string
 }
